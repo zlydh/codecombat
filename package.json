@@ -40,7 +40,7 @@
     "nodemon": "nodemon",
     "jasmine-node": "jasmine-node",
     "multicore": "coffee multicore.coffee",
-    "nodemon": "nodemon"
+    "jasmine": "jasmine --stop-on-failure=true"
   },
   "main": "index.js",
   "keywords": [
@@ -63,6 +63,7 @@
     "geoip-lite": "^1.1.6",
     "graceful-fs": "~2.0.1",
     "gridfs-stream": "0.4.x",
+    "jasmine": "^2.3.2",
     "jsondiffpatch": "0.1.17",
     "lodash": "~2.4.1",
     "mailchimp-api": "2.0.x",

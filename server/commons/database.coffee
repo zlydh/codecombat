@@ -4,8 +4,8 @@ mongoose = require 'mongoose'
 Grid = require 'gridfs-stream'
 mongooseCache = require 'mongoose-cache'
 
-global.testing = testing = '--unittest' in process.argv
-
+#global.testing = testing = '--unittest' in process.argv
+console.log 'global testing?', global.testing
 
 module.exports.connect = () ->
   address = module.exports.generateMongoConnectionString()
@@ -34,5 +34,6 @@ module.exports.generateMongoConnectionString = ->
     if config.mongo.username and config.mongo.password
       address = config.mongo.username + ':' + config.mongo.password + '@' + address
     address = "mongodb://#{address}/#{dbName}"
+    console.log 'address', address
 
   return address
