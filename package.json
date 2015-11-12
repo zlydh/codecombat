@@ -40,7 +40,7 @@
     "nodemon": "nodemon",
     "jasmine-node": "jasmine-node",
     "multicore": "coffee multicore.coffee",
-    "jasmine": "jasmine --stop-on-failure=true"
+    "jasmine": "jasmine"
   },
   "main": "index.js",
   "keywords": [
