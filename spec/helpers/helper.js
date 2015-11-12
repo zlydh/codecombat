@@ -46,7 +46,6 @@ describe('Server Test Helper', function() {
       // production DB, tests must be run with 
       expect(err).toBeNull();
       expect(count).toBeLessThan(100);
-      console.log('count?', count);
       if(err || count >= 100) {
         // the only way to be sure we don't keep going with the tests
         process.exit(1);
@@ -58,7 +57,6 @@ describe('Server Test Helper', function() {
   it('clears the db', function(done) {
     var mongoose = require('mongoose');
     mongoose.connection.db.executeDbCommand({dropDatabase:1}, function(err, result) {
-      console.log('result?', result);
       if (err) { console.log(err); }
       done(); 
     });
