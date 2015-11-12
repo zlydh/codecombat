@@ -38,9 +38,8 @@ diminishing =
 
 url = getURL('/db/achievement')
 
-# TODO: re-enable achievements
 
-xdescribe 'Achievement', ->
+describe 'Achievement', ->
   allowHeader = 'GET, POST, PUT, PATCH, DELETE'
 
   it 'preparing test: deleting all Achievements first', (done) ->
@@ -126,7 +125,7 @@ xdescribe 'Achievement', ->
 
 # TODO: Took level achievements out of this auto achievement business, so fix these tests
 
-xdescribe 'Level Session Achievement', ->
+describe 'Level Session Achievement', ->
   it 'does not generate earned achievements automatically, they need to be created manually', (done) ->
     unittest.getNormalJoe (joe) ->
       session = new LevelSession
@@ -216,7 +215,7 @@ xdescribe 'Achieving Achievements', ->
             done()
 
 
-xdescribe 'Recalculate Achievements', ->
+describe 'Recalculate Achievements', ->
   EarnedAchievementHandler = require '../../../server/achievements/earned_achievement_handler'
 
   it 'remove earned achievements', (done) ->
@@ -251,7 +250,7 @@ xdescribe 'Recalculate Achievements', ->
                   expect(guy.get 'points').toBe unlockable.worth
                   done()
 
-  it 'can recalculate all achievements', (done) ->
+  xit 'can recalculate all achievements', (done) ->
     loginAdmin ->
       Achievement.count {}, (err, count) ->
         expect(count).toBe 3
