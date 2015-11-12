@@ -153,7 +153,7 @@ describe 'Level Session Achievement', ->
             done()
 
 
-xdescribe 'Achieving Achievements', ->
+describe 'Achieving Achievements', ->
   it 'wait for achievements to be loaded', (done) ->
     Achievement.loadAchievements (achievements) ->
       expect(Object.keys(achievements).length).toBe(1)
