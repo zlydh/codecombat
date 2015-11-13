@@ -53,6 +53,7 @@ verifyTestReceiptResponseBody = {
 
 config = require '../../../server_config'
 require '../common'
+nockUtils = require '../nock-utils'
 
 # TODO: Re-enable payment tests
 
@@ -87,12 +88,7 @@ describe '/db/payment', ->
 
   describe 'posting Apple IAPs', ->
     
-    beforeEach ->
-      apple_utils = require '../../../server/lib/apple_utils'
-      spyOn(apple_utils, 'verifyReceipt').and.callFake (receipt, done) ->
-        if receipt isnt testReceipt
-          throw new Error('Am not mocked to handle any other receipt.')
-        done(null, verifyTestReceiptResponseBody)
+    afterEach nockUtils.teardownNock
 
     it 'denies anonymous users trying to pay', (done) ->
       request.get getURL('/auth/whoami'), ->
@@ -101,40 +97,48 @@ describe '/db/payment', ->
           done()
 
     it 'creates a payment object and credits gems to the user', (done) ->
-      loginJoe ->
-        request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
-          paymentCreated = body?._id
-          expect(res.statusCode).toBe 201
-          User.findOne({name:'Joe'}).exec(err, (err, user) ->
-            expect(user.get('purchased')?.gems).toBe(5000)
-            done()
-          )
+      nockUtils.setupNock 'db-payment-apple-test-1.json', (err, nockDone) ->
+        loginJoe ->
+          request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
+            paymentCreated = body?._id
+            expect(res.statusCode).toBe 201
+            User.findOne({name:'Joe'}).exec(err, (err, user) ->
+              expect(user.get('purchased')?.gems).toBe(5000)
+              nockDone()
+              done()
+            )
 
     it 'is idempotent', (done) ->
-      loginJoe ->
-        request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
-          expect(body._id is paymentCreated).toBe(true)
-          expect(res.statusCode).toBe 200
-          User.findOne({name:'Joe'}).exec(err, (err, user) ->
-            expect(user.get('purchased')?.gems).toBe(5000)
-            done()
-          )
+      nockUtils.setupNock 'db-payment-apple-test-2.json', (err, nockDone) ->
+        loginJoe ->
+          request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
+            expect(body._id is paymentCreated).toBe(true)
+            expect(res.statusCode).toBe 200
+            User.findOne({name:'Joe'}).exec(err, (err, user) ->
+              expect(user.get('purchased')?.gems).toBe(5000)
+              nockDone()
+              done()
+            )
 
     it 'prevents other users from reusing payment receipts', (done) ->
-      loginSam ->
-        request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
-          expect(res.statusCode).toBe 403
-          done()
+      nockUtils.setupNock 'db-payment-apple-test-3.json', (err, nockDone) ->
+        loginSam ->
+          request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
+            expect(res.statusCode).toBe 403
+            nockDone()
+            done()
 
     it 'processes only the transactionID that is given', (done) ->
-      loginJoe ->
-        request.post {uri: paymentURL, json: secondApplePayment}, (err, res, body) ->
-          expect(body._id is paymentCreated).toBe(false)
-          expect(res.statusCode).toBe 201
-          User.findOne({name:'Joe'}).exec(err, (err, user) ->
-            expect(user.get('purchased')?.gems).toBe(16000)
-            done()
-          )
+      nockUtils.setupNock 'db-payment-apple-test-4.json', (err, nockDone) ->
+        loginJoe ->
+          request.post {uri: paymentURL, json: secondApplePayment}, (err, res, body) ->
+            expect(body._id is paymentCreated).toBe(false)
+            expect(res.statusCode).toBe 201
+            User.findOne({name:'Joe'}).exec(err, (err, user) ->
+              expect(user.get('purchased')?.gems).toBe(16000)
+              nockDone()
+              done()
+            )
 
   xdescribe 'posting Stripe purchases', ->
     stripe = require('stripe')(config.stripe.secretKey)
