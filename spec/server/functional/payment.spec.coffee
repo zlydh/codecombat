@@ -140,12 +140,13 @@ describe '/db/payment', ->
               done()
             )
 
-  xdescribe 'posting Stripe purchases', ->
+  describe 'posting Stripe purchases', ->
+    afterEach nockUtils.teardownNock
     stripe = require('stripe')(config.stripe.secretKey)
 
     charge = null
     joeID = null
-    timestamp = new Date().getTime()
+    timestamp = 1447443579286
     stripeTokenID = null
     joeData = null
 
@@ -155,76 +156,84 @@ describe '/db/payment', ->
         done()
 
     it 'handles a purchase', (done) ->
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeID = joe.get('_id')+''
-          data = {
-            productID: 'gems_5'
-            stripe: {
-              token: token.id
-              timestamp: timestamp
+      nockUtils.setupNock 'db-payment-stripe-test-01.json', (err, nockDone) ->
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeID = joe.get('_id')+''
+            data = {
+              productID: 'gems_5'
+              stripe: {
+                token: token.id
+                timestamp: timestamp
+              }
             }
-          }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe 201
-            expect(body.stripe.chargeID).toBeDefined()
-            expect(body.stripe.timestamp).toBe(timestamp)
-            expect(body.stripe.customerID).toBeDefined()
-            expect(body.gems).toBe(5000)
-            expect(body.amount).toBe(499)
-            expect(body.productID).toBe('gems_5')
-            expect(body.service).toBe('stripe')
-            expect(body.recipient).toBe(joeID)
-            expect(body.purchaser).toBe(joeID)
-            User.findById(joe.get('_id'), (err, user) ->
-              expect(user.get('purchased').gems).toBe(5000)
-              expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
-              done()
-            )
-      )
-
-    it 'ignores repeated purchases', (done) ->
-      data = { productID: 'gems_5', stripe: { token: stripeTokenID, timestamp: timestamp } }
-      request.post {uri: paymentURL, json: data }, (err, res, body) ->
-        expect(res.statusCode).toBe 200
-        Payment.count({}, (err, count) ->
-          expect(count).toBe(1)
-          User.findById(joeID, (err, user) ->
-            expect(user.get('purchased').gems).toBe(5000)
-            done()
-          )
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe 201
+              expect(body.stripe.chargeID).toBeDefined()
+              expect(body.stripe.timestamp).toBe(timestamp)
+              expect(body.stripe.customerID).toBeDefined()
+              expect(body.gems).toBe(5000)
+              expect(body.amount).toBe(499)
+              expect(body.productID).toBe('gems_5')
+              expect(body.service).toBe('stripe')
+              expect(body.recipient).toBe(joeID)
+              expect(body.purchaser).toBe(joeID)
+              User.findById(joe.get('_id'), (err, user) ->
+                expect(user.get('purchased').gems).toBe(5000)
+                expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
+                nockDone()
+                done()
+              )
         )
 
-    it 'allows a new charge on the existing customer', (done) ->
-      data = { productID: 'gems_5', stripe: { timestamp: new Date().getTime() } }
-      request.post {uri: paymentURL, json: data }, (err, res, body) ->
-        expect(res.statusCode).toBe 201
-        Payment.count {}, (err, count) ->
-          expect(count).toBe(2)
-          User.findById joeID, (err, user) ->
-            joeData = user.toObject()
-            expect(user.get('purchased').gems).toBe(10000)
-            done()
+    it 'ignores repeated purchases', (done) ->
+      nockUtils.setupNock 'db-payment-stripe-test-02.json', (err, nockDone) ->
+        data = { productID: 'gems_5', stripe: { token: stripeTokenID, timestamp: timestamp } }
+        request.post {uri: paymentURL, json: data }, (err, res, body) ->
+          expect(res.statusCode).toBe 200
+          Payment.count({}, (err, count) ->
+            expect(count).toBe(1)
+            User.findById(joeID, (err, user) ->
+              expect(user.get('purchased').gems).toBe(5000)
+              nockDone()
+              done()
+            )
+          )
 
-    it "updates the customer's card when you submit a new token", (done) ->
-      stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
-        originalCustomerID = customer.id
-        originalCardID = customer.sources.data[0].id
-        stripe.tokens.create {
-            card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
-          data = { productID: 'gems_5', stripe: { timestamp: new Date().getTime(), token: token.id } }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(201)
+    it 'allows a new charge on the existing customer', (done) ->
+      nockUtils.setupNock 'db-payment-stripe-test-03.json', (err, nockDone) ->
+        data = { productID: 'gems_5', stripe: { timestamp: new Date().getTime() } }
+        request.post {uri: paymentURL, json: data }, (err, res, body) ->
+          expect(res.statusCode).toBe 201
+          Payment.count {}, (err, count) ->
+            expect(count).toBe(2)
             User.findById joeID, (err, user) ->
               joeData = user.toObject()
-              expect(joeData.stripe.customerID).toBe(originalCustomerID)
-              stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
-                expect(customer.sources.data[0].id).not.toBe(originalCardID)
-                done()
+              expect(user.get('purchased').gems).toBe(10000)
+              nockDone()
+              done()
+
+    it "updates the customer's card when you submit a new token", (done) ->
+      nockUtils.setupNock 'db-payment-stripe-test-04.json', (err, nockDone) ->
+        stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
+          originalCustomerID = customer.id
+          originalCardID = customer.sources.data[0].id
+          stripe.tokens.create {
+              card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
+            data = { productID: 'gems_5', stripe: { timestamp: new Date().getTime(), token: token.id } }
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(201)
+              User.findById joeID, (err, user) ->
+                joeData = user.toObject()
+                expect(joeData.stripe.customerID).toBe(originalCustomerID)
+                stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
+                  expect(customer.sources.data[0].id).not.toBe(originalCardID)
+                  nockDone()
+                  done()
 
     it 'clears the db', (done) ->
       clearModels [User, Payment], (err) ->
@@ -232,32 +241,34 @@ describe '/db/payment', ->
         done()
 
     it 'recovers from breaking between charge and document creation', (done) ->
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-
-        data = {
-          productID: 'gems_5'
-          stripe: { token: token.id, timestamp: timestamp }
-          breakAfterCharging: true
-        }
-
-        loginJoe (joe) ->
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe 500
-
-            data = _.omit data, 'breakAfterCharging'
+      nockUtils.setupNock 'db-payment-stripe-test-05.json', (err, nockDone) ->
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+  
+          data = {
+            productID: 'gems_5'
+            stripe: { token: token.id, timestamp: timestamp }
+            breakAfterCharging: true
+          }
+  
+          loginJoe (joe) ->
             request.post {uri: paymentURL, json: data }, (err, res, body) ->
-              expect(res.statusCode).toBe 201
-
-              Payment.count({}, (err, count) ->
-                expect(count).toBe(1)
-                User.findById(joe.get('_id'), (err, user) ->
-                  expect(user.get('purchased').gems).toBe(5000)
-                  done()
+              expect(res.statusCode).toBe 500
+  
+              data = _.omit data, 'breakAfterCharging'
+              request.post {uri: paymentURL, json: data }, (err, res, body) ->
+                expect(res.statusCode).toBe 201
+  
+                Payment.count({}, (err, count) ->
+                  expect(count).toBe(1)
+                  User.findById(joe.get('_id'), (err, user) ->
+                    expect(user.get('purchased').gems).toBe(5000)
+                    nockDone()
+                    done()
+                  )
                 )
-              )
-      )
+        )
 
     it 'clears the db', (done) ->
       clearModels [User, Payment], (err) ->
@@ -267,66 +278,77 @@ describe '/db/payment', ->
     # Testing card numbers are here: https://stripe.com/docs/testing
 
     it 'handles card that attaches to customer but fails to be charged', (done) ->
-      stripe.tokens.create({
-          card: { number: '4000000000000341', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
+      nockUtils.setupNock 'db-payment-stripe-test-06.json', (err, nockDone) ->
+        stripe.tokens.create({
+            card: { number: '4000000000000341', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
+            loginJoe (joe) ->
+              timestamp = new Date().getTime()
+              data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
+              request.post {uri: paymentURL, json: data }, (err, res, body) ->
+                expect(res.statusCode).toBe(402)
+                nockDone()
+                done()
+        )
+
+    it 'handles card that always is declined with card_declined code', (done) ->
+      nockUtils.setupNock 'db-payment-stripe-test-07.json', (err, nockDone) ->
+        stripe.tokens.create({
+            card: { number: '4000000000000002', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
           loginJoe (joe) ->
             timestamp = new Date().getTime()
             data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
             request.post {uri: paymentURL, json: data }, (err, res, body) ->
               expect(res.statusCode).toBe(402)
+              nockDone()
               done()
-      )
-
-    it 'handles card that always is declined with card_declined code', (done) ->
-      stripe.tokens.create({
-          card: { number: '4000000000000002', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
-        loginJoe (joe) ->
-          timestamp = new Date().getTime()
-          data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(402)
-            done()
-      )
+        )
 
     it 'handles card that always is declined with incorrect_cvc code', (done) ->
-      stripe.tokens.create({
-          card: { number: '4000000000000127', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
-        loginJoe (joe) ->
-          timestamp = new Date().getTime()
-          data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(402)
-            done()
-      )
+      nockUtils.setupNock 'db-payment-stripe-test-08.json', (err, nockDone) ->
+        stripe.tokens.create({
+            card: { number: '4000000000000127', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
+          loginJoe (joe) ->
+            timestamp = new Date().getTime()
+            data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(402)
+              nockDone()
+              done()
+        )
 
     it 'handles card that always is declined with expired_card code', (done) ->
-      stripe.tokens.create({
-          card: { number: '4000000000000069', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
-        loginJoe (joe) ->
-          timestamp = new Date().getTime()
-          data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(402)
-            done()
-      )
+      nockUtils.setupNock 'db-payment-stripe-test-09.json', (err, nockDone) ->
+        stripe.tokens.create({
+            card: { number: '4000000000000069', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
+          loginJoe (joe) ->
+            timestamp = new Date().getTime()
+            data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(402)
+              nockDone()
+              done()
+        )
 
     it 'handles card that always is declined with processing_error code', (done) ->
-      stripe.tokens.create({
-          card: { number: '4000000000000119', exp_month: 12, exp_year: 2020, cvc: '123' }
-        }, (err, token) ->
-        loginJoe (joe) ->
-          timestamp = new Date().getTime()
-          data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(402)
-            done()
-      )
+      nockUtils.setupNock 'db-payment-stripe-test-10.json', (err, nockDone) ->
+        stripe.tokens.create({
+            card: { number: '4000000000000119', exp_month: 12, exp_year: 2020, cvc: '123' }
+          }, (err, token) ->
+          loginJoe (joe) ->
+            timestamp = new Date().getTime()
+            data = { productID: 'gems_5', stripe: { token: token.id, timestamp: timestamp } }
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(402)
+              nockDone()
+              done()
+        )
 
-  xdescribe '/db/payment/check-stripe-charges', ->
+  describe '/db/payment/check-stripe-charges', ->
+    afterEach nockUtils.teardownNock
     stripe = require('stripe')(config.stripe.secretKey)
 
     it 'clears the db', (done) ->
@@ -335,32 +357,35 @@ describe '/db/payment', ->
         done()
 
     it 'finds and records charges which are not in our db', (done) ->
-      timestamp = new Date().getTime()
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-
-        data = {
-          productID: 'gems_5'
-          stripe: { token: token.id, timestamp: timestamp }
-          breakAfterCharging: true
-        }
-
-        loginJoe (joe) ->
-          request.post {uri: paymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe 500
-
-            request.post { uri: checkChargesURL }, (err, res, body) ->
-              expect(res.statusCode).toBe 201
-              Payment.count({}, (err, count) ->
-                expect(count).toBe(1)
-                User.findById(joe.get('_id'), (err, user) ->
-                  expect(user.get('purchased').gems).toBe(5000)
-                  done()
+      nockUtils.setupNock 'db-payment-check-stripe-charges-test-01.json', (err, nockDone) ->
+        timestamp = new Date().getTime()
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+  
+          data = {
+            productID: 'gems_5'
+            stripe: { token: token.id, timestamp: timestamp }
+            breakAfterCharging: true
+          }
+  
+          loginJoe (joe) ->
+            request.post {uri: paymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe 500
+  
+              request.post { uri: checkChargesURL }, (err, res, body) ->
+                expect(res.statusCode).toBe 201
+                Payment.count({}, (err, count) ->
+                  expect(count).toBe(1)
+                  User.findById(joe.get('_id'), (err, user) ->
+                    expect(user.get('purchased').gems).toBe(5000)
+                    nockDone()
+                    done()
+                  )
                 )
-              )
 
-  xdescribe '/db/payment/custom', ->
+  describe '/db/payment/custom', ->
+    afterEach nockUtils.teardownNock
     stripe = require('stripe')(config.stripe.secretKey)
 
     it 'clears the db', (done) ->
@@ -369,133 +394,141 @@ describe '/db/payment', ->
         done()
 
     it 'handles a custom purchase with description', (done) ->
-      timestamp = new Date().getTime()
-      amount = 5000
-      description = 'A sweet Coco t-shirt'
-
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeID = joe.get('_id') + ''
-          data = {
-            amount: amount
-            description: description
-            stripe: {
-              token: token.id
-              timestamp: timestamp
+      nockUtils.setupNock 'db-payment-custom-stripe-test-01.json', (err, nockDone) ->
+        timestamp = 1447445242091
+        amount = 5000
+        description = 'A sweet Coco t-shirt'
+  
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeID = joe.get('_id') + ''
+            data = {
+              amount: amount
+              description: description
+              stripe: {
+                token: token.id
+                timestamp: timestamp
+              }
             }
-          }
-          request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe 201
-            expect(body.stripe.chargeID).toBeDefined()
-            expect(body.stripe.timestamp).toBe(timestamp)
-            expect(body.stripe.customerID).toBeDefined()
-            expect(body.description).toEqual(description)
-            expect(body.amount).toEqual(amount)
-            expect(body.productID).toBe('custom')
-            expect(body.service).toBe('stripe')
-            expect(body.recipient).toBe(joeID)
-            expect(body.purchaser).toBe(joeID)
-            User.findById(joe.get('_id'), (err, user) ->
-              expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
-
-              criteria =
-                recipient: user.get('_id')
-                purchaser: user.get('_id')
-                amount: amount
-                description: description
-                service: 'stripe'
-                "stripe.customerID": user.get('stripe').customerID
-              Payment.findOne criteria, (err, payment) ->
-                expect(err).toBeNull()
-                expect(payment).not.toBeNull()
-                done()
-            )
-      )
+            request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe 201
+              expect(body.stripe.chargeID).toBeDefined()
+              expect(body.stripe.timestamp).toBe(timestamp)
+              expect(body.stripe.customerID).toBeDefined()
+              expect(body.description).toEqual(description)
+              expect(body.amount).toEqual(amount)
+              expect(body.productID).toBe('custom')
+              expect(body.service).toBe('stripe')
+              expect(body.recipient).toBe(joeID)
+              expect(body.purchaser).toBe(joeID)
+              User.findById(joe.get('_id'), (err, user) ->
+                expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
+  
+                criteria =
+                  recipient: user.get('_id')
+                  purchaser: user.get('_id')
+                  amount: amount
+                  description: description
+                  service: 'stripe'
+                  "stripe.customerID": user.get('stripe').customerID
+                Payment.findOne criteria, (err, payment) ->
+                  expect(err).toBeNull()
+                  expect(payment).not.toBeNull()
+                  nockDone()
+                  done()
+              )
+        )
 
     it 'handles a custom purchase without description', (done) ->
-      timestamp = new Date().getTime()
-      amount = 73000
-
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeID = joe.get('_id') + ''
-          data = {
-            amount: amount
-            stripe: {
-              token: token.id
-              timestamp: timestamp
+      nockUtils.setupNock 'db-payment-custom-stripe-test-02.json', (err, nockDone) ->
+        timestamp = 1447445242092
+        amount = 73000
+  
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeID = joe.get('_id') + ''
+            data = {
+              amount: amount
+              stripe: {
+                token: token.id
+                timestamp: timestamp
+              }
             }
-          }
-          request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe 201
-            expect(body.stripe.chargeID).toBeDefined()
-            expect(body.stripe.timestamp).toBe(timestamp)
-            expect(body.stripe.customerID).toBeDefined()
-            expect(body.amount).toEqual(amount)
-            expect(body.productID).toBe('custom')
-            expect(body.service).toBe('stripe')
-            expect(body.recipient).toBe(joeID)
-            expect(body.purchaser).toBe(joeID)
-            User.findById(joe.get('_id'), (err, user) ->
-              expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
-
-              criteria =
-                recipient: user.get('_id')
-                purchaser: user.get('_id')
-                amount: amount
-                service: 'stripe'
-                "stripe.customerID": user.get('stripe').customerID
-              Payment.findOne criteria, (err, payment) ->
-                expect(err).toBeNull()
-                expect(payment).not.toBeNull()
-                done()
-            )
-      )
+            request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe 201
+              expect(body.stripe.chargeID).toBeDefined()
+              expect(body.stripe.timestamp).toBe(timestamp)
+              expect(body.stripe.customerID).toBeDefined()
+              expect(body.amount).toEqual(amount)
+              expect(body.productID).toBe('custom')
+              expect(body.service).toBe('stripe')
+              expect(body.recipient).toBe(joeID)
+              expect(body.purchaser).toBe(joeID)
+              User.findById(joe.get('_id'), (err, user) ->
+                expect(user.get('stripe').customerID).toBe(body.stripe.customerID)
+  
+                criteria =
+                  recipient: user.get('_id')
+                  purchaser: user.get('_id')
+                  amount: amount
+                  service: 'stripe'
+                  "stripe.customerID": user.get('stripe').customerID
+                Payment.findOne criteria, (err, payment) ->
+                  expect(err).toBeNull()
+                  expect(payment).not.toBeNull()
+                  nockDone()
+                  done()
+              )
+        )
 
     it 'handles a custom purchase with invalid amount', (done) ->
-      timestamp = new Date().getTime()
-      amount = 'free?'
-
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeID = joe.get('_id') + ''
-          data = {
-            amount: amount
-            stripe: {
-              token: token.id
-              timestamp: timestamp
+      nockUtils.setupNock 'db-payment-custom-stripe-test-03.json', (err, nockDone) ->
+        timestamp = 1447445242093
+        amount = 'free?'
+  
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeID = joe.get('_id') + ''
+            data = {
+              amount: amount
+              stripe: {
+                token: token.id
+                timestamp: timestamp
+              }
             }
-          }
-          request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(400)
-            done()
-      )
+            request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(400)
+              nockDone()
+              done()
+        )
 
     it 'handles a custom purchase with no amount', (done) ->
-      timestamp = new Date().getTime()
-
-      stripe.tokens.create({
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeID = joe.get('_id') + ''
-          data = {
-            stripe: {
-              token: token.id
-              timestamp: timestamp
+      nockUtils.setupNock 'db-payment-custom-stripe-test-03.json', (err, nockDone) ->
+        timestamp = 1447445242094
+  
+        stripe.tokens.create({
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeID = joe.get('_id') + ''
+            data = {
+              stripe: {
+                token: token.id
+                timestamp: timestamp
+              }
             }
-          }
-          request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
-            expect(res.statusCode).toBe(400)
-            done()
-      )
+            request.post {uri: customPaymentURL, json: data }, (err, res, body) ->
+              expect(res.statusCode).toBe(400)
+              nockDone()
+              done()
+        )
