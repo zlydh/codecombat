@@ -8,8 +8,12 @@ require('coffee-script/register');
 
 // 1. Make sure there are no environmental variables for COCO_ in place
 
+var allowedKeys = [
+  'COCO_TRAVIS_TEST'
+];
+
 var cocoKeysPresent = _.any(_.keys(process.env), function(envKey) {
-  return envKey.indexOf('COCO_') >= 0;
+  return envKey.indexOf('COCO_') >= 0 && !_.contains(allowedKeys, envKey);
 });
 if (cocoKeysPresent) {
   throw Error('Stopping server tests because COCO_ environmental variables are present.');
