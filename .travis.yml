@@ -16,6 +16,7 @@ cache:
   directories:
     - node_modules
     - bower_components
+    - spec/fixtures
 
 before_install:
   - export COCO_TRAVIS_TEST=1
@@ -26,6 +27,7 @@ before_script:
   - sh -e /etc/init.d/xvfb start
   - "node index.js --unittest &"
   - "sleep 10" # to give node a chance to start
+  - "ls spec/fixtures" # making sure travis is caching spec/fixtures
 
 script:
   - "./node_modules/karma/bin/karma start --browsers Firefox --single-run --reporters progress"
